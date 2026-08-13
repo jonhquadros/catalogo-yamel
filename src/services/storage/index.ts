@@ -34,7 +34,11 @@ import {
   OrderTotals,
   OrderCustomer,
   CashMovementType,
-  PaymentMethod
+  PaymentMethod,
+  ProductionStationType,
+  ProductionStatus,
+  ProductionItem,
+  ProductionTicket
 } from './types';
 
 // --- SEED INITIAL DATA WITH CENTS-BASED MONETARY VALUES ---
@@ -118,6 +122,7 @@ export async function seedInitialDataIfNeeded(): Promise<void> {
       sortOrder: 1,
       preparationTime: 12,
       sku: 'YML-BURGER-001',
+      productionStation: 'KITCHEN',
       createdAt: now,
       updatedAt: now,
       syncStatus: 'SYNCED',
@@ -137,6 +142,7 @@ export async function seedInitialDataIfNeeded(): Promise<void> {
       sortOrder: 2,
       preparationTime: 15,
       sku: 'YML-BURGER-002',
+      productionStation: 'KITCHEN',
       createdAt: now,
       updatedAt: now,
       syncStatus: 'SYNCED',
@@ -156,6 +162,7 @@ export async function seedInitialDataIfNeeded(): Promise<void> {
       sortOrder: 3,
       preparationTime: 7,
       sku: 'YML-SIDE-001',
+      productionStation: 'KITCHEN',
       createdAt: now,
       updatedAt: now,
       syncStatus: 'SYNCED',
@@ -174,10 +181,49 @@ export async function seedInitialDataIfNeeded(): Promise<void> {
       featured: false,
       sortOrder: 4,
       sku: 'YML-DRINK-001',
+      productionStation: 'BAR',
       createdAt: now,
       updatedAt: now,
       syncStatus: 'SYNCED',
       localId: 'L-104',
+      deviceId: devId,
+    },
+    {
+      id: 'prod-5',
+      categoryId: 'cat-1',
+      name: 'Café Expresso Especial',
+      description: 'Café de grãos selecionados da Região Mogiana, extração perfeita.',
+      price: 650, // R$ 6,50 in Cents
+      cost: 180,
+      active: true,
+      available: true,
+      featured: true,
+      sortOrder: 5,
+      sku: 'YML-COFFEE-001',
+      productionStation: 'BAR',
+      createdAt: now,
+      updatedAt: now,
+      syncStatus: 'SYNCED',
+      localId: 'L-105',
+      deviceId: devId,
+    },
+    {
+      id: 'prod-6',
+      categoryId: 'cat-1',
+      name: 'Taça de Sorvete Artesanal',
+      description: 'Duas bolas de sorvete de baunilha com calda de chocolate e chantilly fresco.',
+      price: 1850, // R$ 18,50 in Cents
+      cost: 620,
+      active: true,
+      available: true,
+      featured: true,
+      sortOrder: 6,
+      sku: 'YML-ICE-001',
+      productionStation: 'ICE_CREAM',
+      createdAt: now,
+      updatedAt: now,
+      syncStatus: 'SYNCED',
+      localId: 'L-106',
       deviceId: devId,
     }
   ];
@@ -350,6 +396,13 @@ export async function seedInitialDataIfNeeded(): Promise<void> {
     updatedAt: now,
   };
   await localDB.put('devices', device);
+
+  // Sync tickets for initial seed orders
+  try {
+    await productionRepository.syncTicketsFromOrders();
+  } catch (e) {
+    console.warn('Erro ao gerar tickets de produção iniciais:', e);
+  }
 }
 
 // --- DEVICE COMPATIBILITY FUNCTIONS ---
@@ -541,6 +594,13 @@ export const ordersRepository = {
       order.deviceId
     );
 
+    // Gerar automaticamente os tickets de produção do KDS
+    try {
+      await productionRepository.syncTicketsFromOrders();
+    } catch (err) {
+      console.warn('Erro ao gerar tickets de produção:', err);
+    }
+
     return order;
   },
 
@@ -557,6 +617,235 @@ export const ordersRepository = {
       order,
       order.deviceId
     );
+
+    // Atualiza/sincroniza tickets no KDS
+    try {
+      await productionRepository.syncTicketsFromOrders();
+    } catch (err) {
+      console.warn('Erro ao sincronizar tickets de produção:', err);
+    }
+  }
+};
+
+// --- HELPER DE SETOR DE PRODUÇÃO ---
+export function getStationForProduct(
+  product?: Product | null,
+  productNameSnapshot?: string
+): ProductionStationType {
+  if (product?.productionStation) {
+    return product.productionStation;
+  }
+  const name = (productNameSnapshot || product?.name || '').toLowerCase();
+  if (
+    name.includes('coca') ||
+    name.includes('café') ||
+    name.includes('cafe') ||
+    name.includes('bebida') ||
+    name.includes('suco') ||
+    name.includes('refrigerante') ||
+    name.includes('lata') ||
+    name.includes('cappuccino') ||
+    name.includes('chopp') ||
+    name.includes('cerveja')
+  ) {
+    return 'BAR';
+  }
+  if (
+    name.includes('sorvete') ||
+    name.includes('açaí') ||
+    name.includes('acai') ||
+    name.includes('taça') ||
+    name.includes('picolé') ||
+    name.includes('gelato')
+  ) {
+    return 'ICE_CREAM';
+  }
+  return 'KITCHEN';
+}
+
+// --- REPOSITÓRIO DE PRODUÇÃO (KDS) ---
+export const productionRepository = {
+  async getAllTickets(): Promise<ProductionTicket[]> {
+    const list = await localDB.getAll<ProductionTicket>('production_tickets');
+    return list.filter(t => !t.deletedAt);
+  },
+
+  async getTicketsByStation(station: ProductionStationType | 'ALL'): Promise<ProductionTicket[]> {
+    const all = await this.getAllTickets();
+    if (station === 'ALL') return all;
+    return all.filter(t => t.station === station);
+  },
+
+  async updateTicketStatus(
+    ticketId: string,
+    newStatus: ProductionStatus
+  ): Promise<ProductionTicket> {
+    const ticket = await localDB.get<ProductionTicket>('production_tickets', ticketId);
+    if (!ticket) throw new Error('Ticket de produção não encontrado');
+
+    const now = new Date().toISOString();
+    ticket.status = newStatus;
+    ticket.updatedAt = now;
+
+    ticket.items = ticket.items.map(item => ({
+      ...item,
+      status: newStatus,
+      updatedAt: now
+    }));
+
+    await localDB.put('production_tickets', ticket);
+
+    const devId = await getOrRegisterDeviceId();
+    await syncQueueRepository.enqueue(
+      'production_ticket',
+      ticket.id,
+      'UPDATE',
+      ticket,
+      devId
+    );
+
+    return ticket;
+  },
+
+  /**
+   * Gerador Idempotente de Tickets de Produção a partir de Pedidos ativos no IndexedDB.
+   */
+  async syncTicketsFromOrders(): Promise<ProductionTicket[]> {
+    const orders = await ordersRepository.getAll();
+    const existingTickets = await this.getAllTickets();
+    const allProducts = await productsRepository.getAll();
+    const productMap = new Map<string, Product>(allProducts.map(p => [p.id, p]));
+    const allTables = await tablesRepository.getAll();
+    const tableMap = new Map<string, Table>(allTables.map(t => [t.id, t]));
+
+    const devId = await getOrRegisterDeviceId();
+    const now = new Date().toISOString();
+
+    const ticketMap = new Map<string, ProductionTicket>();
+    for (const t of existingTickets) {
+      ticketMap.set(`${t.orderId}-${t.station}`, t);
+    }
+
+    const activeOrders = orders.filter(o => o.status !== 'CANCELLED' && o.items && o.items.length > 0);
+
+    for (const order of activeOrders) {
+      const itemsByStation = new Map<ProductionStationType, OrderItem[]>();
+
+      for (const item of order.items) {
+        if (item.status === 'CANCELLED') continue;
+
+        const prod = productMap.get(item.productId);
+        const station = getStationForProduct(prod, item.productNameSnapshot);
+
+        if (!itemsByStation.has(station)) {
+          itemsByStation.set(station, []);
+        }
+        itemsByStation.get(station)!.push(item);
+      }
+
+      for (const [station, items] of itemsByStation.entries()) {
+        const ticketKey = `${order.id}-${station}`;
+        const existing = ticketMap.get(ticketKey);
+
+        if (!existing) {
+          const table = order.tableId ? tableMap.get(order.tableId) : undefined;
+
+          const prodItems: ProductionItem[] = items.map(item => ({
+            id: item.id || generateLocalId(),
+            orderItemId: item.id,
+            productId: item.productId,
+            productNameSnapshot: item.productNameSnapshot,
+            quantity: item.quantity,
+            notes: item.notes,
+            status: item.status === 'PREPARING' ? 'PREPARING' : item.status === 'READY' ? 'READY' : 'PENDING',
+            createdAt: item.createdAt || order.createdAt || now,
+            updatedAt: now,
+          }));
+
+          let ticketStatus: ProductionStatus = 'PENDING';
+          if (prodItems.every(i => i.status === 'READY')) {
+            ticketStatus = 'READY';
+          } else if (prodItems.some(i => i.status === 'PREPARING' || i.status === 'READY')) {
+            ticketStatus = 'PREPARING';
+          }
+
+          const newTicket: ProductionTicket = {
+            id: `ticket-${order.id}-${station}`,
+            orderId: order.id,
+            orderLocalId: order.localId || `YML-${order.orderNumber}`,
+            orderOrigin: order.origin,
+            station,
+            tableNumber: table?.number,
+            tableName: table?.name,
+            customerName: order.customerSnapshot?.name,
+            customerPhone: order.customerSnapshot?.phone,
+            deliveryType: order.fulfillmentType,
+            status: ticketStatus,
+            items: prodItems,
+            notes: order.notes,
+            syncStatus: 'PENDING',
+            deviceId: order.deviceId || devId,
+            createdAt: order.createdAt || now,
+            updatedAt: now,
+          };
+
+          await localDB.put('production_tickets', newTicket);
+          await syncQueueRepository.enqueue(
+            'production_ticket',
+            newTicket.id,
+            'CREATE',
+            newTicket,
+            devId
+          );
+          ticketMap.set(ticketKey, newTicket);
+        } else {
+          // Ticket já existe para essa ordem + estação: verificar se há novos itens adicionados posteriormente
+          let hasNewItems = false;
+          const existingItemMap = new Map(existing.items.map(i => [i.orderItemId, i]));
+
+          for (const item of items) {
+            if (!existingItemMap.has(item.id)) {
+              const newItem: ProductionItem = {
+                id: item.id || generateLocalId(),
+                orderItemId: item.id,
+                productId: item.productId,
+                productNameSnapshot: item.productNameSnapshot,
+                quantity: item.quantity,
+                notes: item.notes,
+                status: item.status === 'PREPARING' ? 'PREPARING' : item.status === 'READY' ? 'READY' : 'PENDING',
+                createdAt: item.createdAt || order.createdAt || now,
+                updatedAt: now,
+              };
+              existing.items.push(newItem);
+              hasNewItems = true;
+            }
+          }
+
+          if (hasNewItems) {
+            existing.updatedAt = now;
+            // Recalcular o status do ticket preservando o progresso mas acomodando novos itens
+            let updatedStatus: ProductionStatus = 'PENDING';
+            if (existing.items.every(i => i.status === 'READY')) {
+              updatedStatus = 'READY';
+            } else if (existing.items.some(i => i.status === 'PREPARING' || i.status === 'READY')) {
+              updatedStatus = 'PREPARING';
+            }
+            existing.status = updatedStatus;
+
+            await localDB.put('production_tickets', existing);
+            await syncQueueRepository.enqueue(
+              'production_ticket',
+              existing.id,
+              'UPDATE',
+              existing,
+              devId
+            );
+          }
+        }
+      }
+    }
+
+    return Array.from(ticketMap.values());
   }
 };
 

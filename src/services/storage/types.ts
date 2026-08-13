@@ -19,7 +19,8 @@ export type SyncEntityName =
   | 'cash_register'
   | 'cash_movement'
   | 'delivery'
-  | 'device';
+  | 'device'
+  | 'production_ticket';
 
 export interface SyncQueueItem {
   id: string; // Generated local UUID
@@ -91,6 +92,8 @@ export interface Category extends Auditable {
 }
 
 // --- 4. PRODUCT ---
+export type ProductionStationType = 'KITCHEN' | 'BAR' | 'ICE_CREAM' | 'OTHER';
+
 export interface Product extends Auditable {
   id: string; // UUID
   name: string;
@@ -105,6 +108,7 @@ export interface Product extends Auditable {
   sortOrder: number;
   preparationTime?: number; // In minutes
   sku?: string;
+  productionStation?: ProductionStationType; // Assigned production station (KITCHEN, BAR, ICE_CREAM, etc.)
   
   // Local-first synchronization tracking fields
   syncStatus: SyncStatus;
@@ -360,5 +364,38 @@ export interface OrderCustomer {
   name: string;
   phone?: string;
   address?: string;
+}
+
+// --- 12. PRODUCTION TICKETS & KDS ---
+export type ProductionStatus = 'PENDING' | 'PREPARING' | 'READY';
+
+export interface ProductionItem {
+  id: string; // UUID
+  orderItemId: string; // Refers to OrderItem.id
+  productId: string;
+  productNameSnapshot: string;
+  quantity: number;
+  notes?: string;
+  status: ProductionStatus;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ProductionTicket extends Auditable {
+  id: string; // UUID (e.g. ticket-orderId-station)
+  orderId: string;
+  orderLocalId: string; // e.g. YML-1048
+  orderOrigin: OrderOrigin;
+  station: ProductionStationType;
+  tableNumber?: number;
+  tableName?: string;
+  customerName?: string;
+  customerPhone?: string;
+  deliveryType?: 'DELIVERY' | 'PICKUP';
+  status: ProductionStatus;
+  items: ProductionItem[];
+  notes?: string;
+  syncStatus: SyncStatus;
+  deviceId: string;
 }
 

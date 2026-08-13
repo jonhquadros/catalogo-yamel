@@ -10,7 +10,7 @@ import {
 } from './types';
 
 const DB_NAME = 'yamel_offline_db_v2';
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 
 export type StoreName =
   | 'companies'
@@ -28,6 +28,7 @@ export type StoreName =
   | 'deliveries'
   | 'sync_queue'
   | 'devices'
+  | 'production_tickets'
   | 'device_config'; // Backward compatibility
 
 export class YamelDB {
@@ -141,6 +142,14 @@ export class YamelDB {
         // 15. Devices
         if (!db.objectStoreNames.contains('devices')) {
           db.createObjectStore('devices', { keyPath: 'id' });
+        }
+
+        // 16. Production Tickets (KDS)
+        if (!db.objectStoreNames.contains('production_tickets')) {
+          const store = db.createObjectStore('production_tickets', { keyPath: 'id' });
+          store.createIndex('orderId', 'orderId', { unique: false });
+          store.createIndex('station', 'station', { unique: false });
+          store.createIndex('status', 'status', { unique: false });
         }
 
         // Legacy configuration store preserved for back-compat

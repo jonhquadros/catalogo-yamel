@@ -54,6 +54,7 @@ export function AdminProdutosView() {
   const [formImage, setFormImage] = useState('');
   const [formSku, setFormSku] = useState('');
   const [formPrepTime, setFormPrepTime] = useState('15');
+  const [formProductionStation, setFormProductionStation] = useState<'KITCHEN' | 'BAR' | 'ICE_CREAM'>('KITCHEN');
   const [formSortOrder, setFormSortOrder] = useState('1');
   const [formActive, setFormActive] = useState(true);
   const [formAvailable, setFormAvailable] = useState(true);
@@ -130,6 +131,7 @@ export function AdminProdutosView() {
       setFormImage(product.image || '');
       setFormSku(product.sku || '');
       setFormPrepTime(product.preparationTime ? String(product.preparationTime) : '15');
+      setFormProductionStation(product.productionStation || 'KITCHEN');
       setFormSortOrder(String(product.sortOrder || 1));
       setFormActive(product.active);
       setFormAvailable(product.available);
@@ -144,6 +146,7 @@ export function AdminProdutosView() {
       setFormImage('');
       setFormSku('YML-' + Math.floor(100 + Math.random() * 900));
       setFormPrepTime('15');
+      setFormProductionStation('KITCHEN');
       setFormSortOrder(String(products.length + 1));
       setFormActive(true);
       setFormAvailable(true);
@@ -214,6 +217,7 @@ export function AdminProdutosView() {
         featured: formFeatured,
         sortOrder: sortOrderNum,
         preparationTime: prepTimeNum,
+        productionStation: formProductionStation,
         sku: formSku.trim() || undefined,
         createdAt: editingProduct ? editingProduct.createdAt : now,
         updatedAt: now,
@@ -607,8 +611,8 @@ export function AdminProdutosView() {
                 </div>
               </div>
 
-              {/* SKU, Prep Time, Sort Order */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              {/* SKU, Prep Time, KDS Station, Sort Order */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
                 <div className="flex flex-col gap-1">
                   <label className="text-xs font-bold text-slate-700 select-none">Código / SKU</label>
                   <input
@@ -632,7 +636,20 @@ export function AdminProdutosView() {
                 </div>
 
                 <div className="flex flex-col gap-1">
-                  <label className="text-xs font-bold text-slate-700 select-none">Ordem de Exibição</label>
+                  <label className="text-xs font-bold text-slate-700 select-none">Setor KDS</label>
+                  <select
+                    value={formProductionStation}
+                    onChange={(e) => setFormProductionStation(e.target.value as any)}
+                    className="w-full px-3 py-2 text-sm border border-slate-200 bg-white rounded-lg outline-none font-semibold text-slate-800 focus:border-amber-500"
+                  >
+                    <option value="KITCHEN">🍳 Cozinha</option>
+                    <option value="BAR">☕ Bar / Bebidas</option>
+                    <option value="ICE_CREAM">🍦 Sorveteria</option>
+                  </select>
+                </div>
+
+                <div className="flex flex-col gap-1">
+                  <label className="text-xs font-bold text-slate-700 select-none">Ordem Exibição</label>
                   <input
                     type="number"
                     min="0"
