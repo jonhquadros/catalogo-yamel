@@ -1100,87 +1100,8 @@ export function CozinhaView() {
   );
 }
 
-// 5. DELIVERY VIEW
-export function DeliveryView() {
-  return (
-    <div className="flex flex-col gap-6">
-      <PageHeader
-        title="Delivery — Entregas"
-        description="Gestão de despachos de pedidos e rotas dos entregadores."
-        id="delivery-header"
-      />
-
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Left Column: List of shipments */}
-        <div className="lg:col-span-2 flex flex-col gap-4">
-          <h3 className="text-sm font-bold text-slate-900">Despachos Pendentes e Ativos</h3>
-          <Card id="delivery-shipments-card">
-            <div className="divide-y divide-slate-100">
-              {[
-                { order: '2039', address: 'Av. Conselheiro Furtado, 1420', courier: 'Carlos Entregador', status: 'Em Rota' },
-                { order: '2042', address: 'Travessa 14 de Março, 850', courier: 'Sem Entregador', status: 'Aguardando Coleta' },
-              ].map((ship, idx) => (
-                <div key={idx} className="p-4 flex items-center justify-between hover:bg-slate-50/40 transition-colors">
-                  <div className="flex items-start gap-3">
-                    <div className="p-2 bg-amber-50 border border-amber-100 rounded-lg text-amber-600 mt-0.5">
-                      <Truck className="w-4 h-4" />
-                    </div>
-                    <div className="flex flex-col">
-                      <h4 className="text-xs font-bold text-slate-900">Pedido #{ship.order}</h4>
-                      <p className="text-[11px] text-slate-400 mt-0.5 flex items-center gap-1">
-                        <MapPin className="w-3 h-3 text-slate-400 shrink-0" />
-                        {ship.address}
-                      </p>
-                      <p className="text-[10px] font-bold text-slate-500 mt-1 flex items-center gap-1">
-                        <User className="w-3 h-3 text-slate-400 shrink-0" />
-                        {ship.courier}
-                      </p>
-                    </div>
-                  </div>
-                  <span className={`text-[10px] font-bold px-2.5 py-1 rounded-full border ${
-                    ship.status === 'Em Rota' ? 'bg-indigo-50 text-indigo-700 border-indigo-200' : 'bg-amber-50 text-amber-700 border-amber-200'
-                  }`}>
-                    {ship.status}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </Card>
-        </div>
-
-        {/* Right Column: Mini Dashboard */}
-        <div className="flex flex-col gap-4">
-          <h3 className="text-sm font-bold text-slate-900">Status da Frota</h3>
-          <Card id="delivery-fleet-card" className="p-5 flex flex-col gap-4">
-            <div className="flex justify-between items-center text-xs border-b border-slate-50 pb-3">
-              <span className="text-slate-500">Entregadores Ativos</span>
-              <span className="font-extrabold text-slate-950">3 online</span>
-            </div>
-            
-            <div className="flex flex-col gap-3">
-              {[
-                { name: 'Carlos Santos (Moto)', status: 'Entregando' },
-                { name: 'Felipe Melo (Bike)', status: 'Disponível' },
-                { name: 'Thiago Silva (Moto)', status: 'Pausado' },
-              ].map((courier, idx) => (
-                <div key={idx} className="flex justify-between items-center text-xs">
-                  <span className="font-semibold text-slate-700">{courier.name}</span>
-                  <span className={`text-[10px] font-bold ${
-                    courier.status === 'Disponível' ? 'text-emerald-600 bg-emerald-50 border border-emerald-100 px-2 py-0.5 rounded' :
-                    courier.status === 'Entregando' ? 'text-amber-600 bg-amber-50 border border-amber-100 px-2 py-0.5 rounded' :
-                    'text-slate-400 bg-slate-50 border border-slate-100 px-2 py-0.5 rounded'
-                  }`}>
-                    {courier.status}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </Card>
-        </div>
-      </div>
-    </div>
-  );
-}
+// 5. DELIVERY VIEW (CENTRAL OPERACIONAL DE ENTREGAS)
+export { DeliveryView } from './DeliveryView';
 
 // 6. CAIXA VIEW
 export function CaixaView() {
