@@ -304,12 +304,11 @@ export function OperationalLayout({ children }: { children: ReactNode }) {
 
           {isOnline && pendingCount > 0 && (
             <div id="sync-notification-bar" className="mb-5 p-3.5 bg-amber-50 border border-amber-200 rounded-xl flex items-start gap-3 text-amber-900 shadow-2xs select-none">
-              <RefreshCw className="w-5 h-5 text-amber-500 shrink-0 mt-0.5 animate-spin" />
+              <RefreshCw className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
               <div>
-                <span className="font-extrabold text-xs block mb-0.5">Sincronização Pendente (Transactional Outbox)</span>
+                <span className="font-extrabold text-xs block mb-0.5">Operações locais pendentes</span>
                 <span className="text-[11px] text-amber-600 font-medium leading-relaxed block">
-                  Há <strong>{pendingCount} operações</strong> em fila no IndexedDB aguardando sincronização com o banco remoto central.
-                  O sistema transmitirá as operações em lote preservando o ordenamento original de caixa e comandas.
+                  Existem <strong>{pendingCount} {pendingCount === 1 ? 'operação armazenada' : 'operações armazenadas'}</strong> localmente aguardando sincronização com o servidor. Seus dados permanecem seguros neste dispositivo.
                 </span>
               </div>
             </div>

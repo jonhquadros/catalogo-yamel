@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { ReactNode, HTMLAttributes } from 'react';
+import { ReactNode, HTMLAttributes, MouseEvent } from 'react';
 
 // CARD COMPONENT
 export interface CardProps extends HTMLAttributes<HTMLDivElement> {
@@ -11,6 +11,7 @@ export interface CardProps extends HTMLAttributes<HTMLDivElement> {
   id?: string;
   className?: string;
   key?: string | number | null;
+  onClick?: (e: MouseEvent<HTMLDivElement>) => void;
 }
 
 export function Card({ children, id, className = '', ...props }: CardProps) {
