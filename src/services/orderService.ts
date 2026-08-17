@@ -235,6 +235,23 @@ export async function changeOrderStatusSafely(orderId: string, nextStatus: Order
     freshOrder.cancelledAt = now;
   }
 
+  // Cascata de status para os itens do pedido quando o status do pedido avança
+  if (freshOrder.items && freshOrder.items.length > 0) {
+    if (nextStatus === 'PREPARING') {
+      freshOrder.items = freshOrder.items.map(item => ({
+        ...item,
+        status: item.status === 'PENDING' ? 'PREPARING' : item.status,
+        updatedAt: now
+      }));
+    } else if (nextStatus === 'READY') {
+      freshOrder.items = freshOrder.items.map(item => ({
+        ...item,
+        status: item.status === 'CANCELLED' ? 'CANCELLED' : 'READY',
+        updatedAt: now
+      }));
+    }
+  }
+
   // Update order in IndexedDB (automatically handles outbox + KDS ticket synchronization)
   await ordersRepository.update(freshOrder);
 

@@ -609,6 +609,14 @@ export const ordersRepository = {
     order.updatedAt = now;
     await localDB.put('orders', order);
 
+    // Atualiza os itens vinculados ao pedido no IndexedDB
+    if (order.items && order.items.length > 0) {
+      for (const item of order.items) {
+        item.updatedAt = now;
+        await localDB.put('order_items', item);
+      }
+    }
+
     // Sincroniza as alterações no outbox
     await syncQueueRepository.enqueue(
       'order',
@@ -704,6 +712,47 @@ export const productionRepository = {
       devId
     );
 
+    // Propaga a atualização do ticket para o Pedido correspondente quando pertinente
+    if (ticket.orderId) {
+      try {
+        const order = await ordersRepository.getById(ticket.orderId);
+        if (order && order.status !== 'CANCELLED' && order.status !== 'COMPLETED' && order.status !== 'DELIVERED' && order.status !== 'OUT_FOR_DELIVERY') {
+          // Atualiza o status dos itens no pedido
+          const ticketItemMap = new Map(ticket.items.map(i => [i.orderItemId, i.status]));
+          if (order.items) {
+            order.items = order.items.map(it => {
+              const matched = ticketItemMap.get(it.id);
+              if (matched) {
+                return { ...it, status: matched, updatedAt: now };
+              }
+              return it;
+            });
+          }
+
+          const allTickets = (await this.getAllTickets()).filter(t => t.orderId === order.id);
+          if (allTickets.length > 0) {
+            if (allTickets.every(t => t.status === 'READY')) {
+              if (order.status !== 'READY') {
+                order.status = 'READY';
+                order.updatedAt = now;
+                await localDB.put('orders', order);
+                await syncQueueRepository.enqueue('order', order.id, 'UPDATE', order, order.deviceId);
+              }
+            } else if (allTickets.some(t => t.status === 'PREPARING' || t.status === 'READY')) {
+              if (order.status === 'PENDING' || order.status === 'CONFIRMED') {
+                order.status = 'PREPARING';
+                order.updatedAt = now;
+                await localDB.put('orders', order);
+                await syncQueueRepository.enqueue('order', order.id, 'UPDATE', order, order.deviceId);
+              }
+            }
+          }
+        }
+      } catch (err) {
+        console.warn('Erro ao propagar status do ticket para o pedido:', err);
+      }
+    }
+
     return ticket;
   },
 
@@ -750,23 +799,34 @@ export const productionRepository = {
         if (!existing) {
           const table = order.tableId ? tableMap.get(order.tableId) : undefined;
 
-          const prodItems: ProductionItem[] = items.map(item => ({
-            id: item.id || generateLocalId(),
-            orderItemId: item.id,
-            productId: item.productId,
-            productNameSnapshot: item.productNameSnapshot,
-            quantity: item.quantity,
-            notes: item.notes,
-            status: item.status === 'PREPARING' ? 'PREPARING' : item.status === 'READY' ? 'READY' : 'PENDING',
-            createdAt: item.createdAt || order.createdAt || now,
-            updatedAt: now,
-          }));
+          const prodItems: ProductionItem[] = items.map(item => {
+            let itemStatus: ProductionStatus = 'PENDING';
+            if (item.status === 'READY' || order.status === 'READY') {
+              itemStatus = 'READY';
+            } else if (item.status === 'PREPARING' || order.status === 'PREPARING') {
+              itemStatus = 'PREPARING';
+            }
+
+            return {
+              id: item.id || generateLocalId(),
+              orderItemId: item.id,
+              productId: item.productId,
+              productNameSnapshot: item.productNameSnapshot,
+              quantity: item.quantity,
+              notes: item.notes,
+              status: itemStatus,
+              createdAt: item.createdAt || order.createdAt || now,
+              updatedAt: now,
+            };
+          });
 
           let ticketStatus: ProductionStatus = 'PENDING';
           if (prodItems.every(i => i.status === 'READY')) {
             ticketStatus = 'READY';
-          } else if (prodItems.some(i => i.status === 'PREPARING' || i.status === 'READY')) {
+          } else if (prodItems.some(i => i.status === 'PREPARING' || i.status === 'READY') || order.status === 'PREPARING') {
             ticketStatus = 'PREPARING';
+          } else if (order.status === 'READY') {
+            ticketStatus = 'READY';
           }
 
           const newTicket: ProductionTicket = {
@@ -799,12 +859,19 @@ export const productionRepository = {
           );
           ticketMap.set(ticketKey, newTicket);
         } else {
-          // Ticket já existe para essa ordem + estação: verificar se há novos itens adicionados posteriormente
-          let hasNewItems = false;
+          // Ticket já existe para essa ordem + estação: verificar se há novos itens adicionados ou atualização de status
+          let hasChanges = false;
           const existingItemMap = new Map(existing.items.map(i => [i.orderItemId, i]));
 
           for (const item of items) {
             if (!existingItemMap.has(item.id)) {
+              let itemStatus: ProductionStatus = 'PENDING';
+              if (item.status === 'READY' || order.status === 'READY') {
+                itemStatus = 'READY';
+              } else if (item.status === 'PREPARING' || order.status === 'PREPARING') {
+                itemStatus = 'PREPARING';
+              }
+
               const newItem: ProductionItem = {
                 id: item.id || generateLocalId(),
                 orderItemId: item.id,
@@ -812,26 +879,53 @@ export const productionRepository = {
                 productNameSnapshot: item.productNameSnapshot,
                 quantity: item.quantity,
                 notes: item.notes,
-                status: item.status === 'PREPARING' ? 'PREPARING' : item.status === 'READY' ? 'READY' : 'PENDING',
+                status: itemStatus,
                 createdAt: item.createdAt || order.createdAt || now,
                 updatedAt: now,
               };
               existing.items.push(newItem);
-              hasNewItems = true;
+              hasChanges = true;
+            } else {
+              // Item já existe: verificar se o status do item no pedido avançou
+              const existingItem = existingItemMap.get(item.id)!;
+              if (item.status === 'PREPARING' && existingItem.status === 'PENDING') {
+                existingItem.status = 'PREPARING';
+                existingItem.updatedAt = now;
+                hasChanges = true;
+              } else if (item.status === 'READY' && (existingItem.status === 'PENDING' || existingItem.status === 'PREPARING')) {
+                existingItem.status = 'READY';
+                existingItem.updatedAt = now;
+                hasChanges = true;
+              }
             }
           }
 
-          if (hasNewItems) {
-            existing.updatedAt = now;
-            // Recalcular o status do ticket preservando o progresso mas acomodando novos itens
-            let updatedStatus: ProductionStatus = 'PENDING';
-            if (existing.items.every(i => i.status === 'READY')) {
-              updatedStatus = 'READY';
-            } else if (existing.items.some(i => i.status === 'PREPARING' || i.status === 'READY')) {
-              updatedStatus = 'PREPARING';
-            }
-            existing.status = updatedStatus;
+          // Propaga transição do Pedido para o Ticket do KDS
+          if (order.status === 'PREPARING' && existing.status === 'PENDING') {
+            existing.status = 'PREPARING';
+            existing.items = existing.items.map(i => (i.status === 'PENDING' ? { ...i, status: 'PREPARING', updatedAt: now } : i));
+            hasChanges = true;
+          } else if (order.status === 'READY' && (existing.status === 'PENDING' || existing.status === 'PREPARING')) {
+            existing.status = 'READY';
+            existing.items = existing.items.map(i => ({ ...i, status: 'READY', updatedAt: now }));
+            hasChanges = true;
+          }
 
+          // Recalcula o status consolidado do ticket
+          let calculatedStatus: ProductionStatus = 'PENDING';
+          if (existing.items.every(i => i.status === 'READY')) {
+            calculatedStatus = 'READY';
+          } else if (existing.items.some(i => i.status === 'PREPARING' || i.status === 'READY') || order.status === 'PREPARING') {
+            calculatedStatus = 'PREPARING';
+          }
+
+          if (existing.status !== calculatedStatus) {
+            existing.status = calculatedStatus;
+            hasChanges = true;
+          }
+
+          if (hasChanges) {
+            existing.updatedAt = now;
             await localDB.put('production_tickets', existing);
             await syncQueueRepository.enqueue(
               'production_ticket',
